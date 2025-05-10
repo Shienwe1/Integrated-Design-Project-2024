@@ -1,0 +1,51 @@
+import RPi.GPIO as GPIO
+import time
+
+# Set up the GPIO mode and pins
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(18, GPIO.OUT)
+GPIO.setup(24, GPIO.OUT)
+
+# Set up PWM on GPIO18 and GPIO23 with 50Hz frequency
+pwm1 = GPIO.PWM(18, 50)
+pwm2 = GPIO.PWM(24, 50)
+
+pwm1.start(0)  # Start PWM with 0% duty cycle
+pwm2.start(0)
+
+def set_angle(pwm, angle):
+    """Set the servo connected to the given PWM to a specified angle (0 to 180 degrees)."""
+    if 0 <= angle <= 180:
+        duty_cycle = (angle / 18) + 2
+        pwm.ChangeDutyCycle(duty_cycle)
+        time.sleep(1)
+    else:
+        print("Invalid angle! Please enter a value between 0 and 180.")
+
+try:
+    while True:
+        input1 = input("Enter angle for Servo 1 (GPIO 18, 0–180°) or 'exit': ")
+        if input1.lower() == "exit":
+            print("Exiting...")
+            break
+
+        input2 = input("Enter angle for Servo 2 (GPIO 23, 0–180°) or 'exit': ")
+        if input2.lower() == "exit":
+            print("Exiting...")
+            break
+
+        try:
+            angle1 = float(input1)
+            angle2 = float(input2)
+            set_angle(pwm1, angle1)
+            set_angle(pwm2, angle2)
+        except ValueError:
+            print("Invalid input. Please enter numbers or 'exit'.")
+
+except KeyboardInterrupt:
+    print("Program interrupted")
+
+finally:
+    pwm1.stop()
+    pwm2.stop()
+    GPIO.cleanup()
