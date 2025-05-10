@@ -1,32 +1,31 @@
 import RPi.GPIO as GPIO
-from time import sleep
+import time
 
-# Setup
-servoPin = 18
+# Set up the GPIO mode and pin
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(servoPin, GPIO.OUT)
+GPIO.setup(18, GPIO.OUT)
 
-# 50 Hz servo PWM
-pwm = GPIO.PWM(servoPin, 50)
-pwm.start(0)
+# Set up PWM on GPIO18 with 50Hz frequency
+myPWM = GPIO.PWM(18, 50)
+myPWM.start(0)  # Start PWM with 0% duty cycle
 
-def angle_to_duty(angle):
-    # Converts angle (0–180) to duty cycle (2.5% to 12.5%)
-    return 2.5 + (angle / 180.0) * 10.0
+def set_angle(angle):
+    """Set the servo to a specified angle (0 to 180 degrees)."""
+    if 0 <= angle <= 180:
+        duty_cycle = (angle / 18) + 2  # Convert angle to duty cycle (5% to 10%)
+        myPWM.ChangeDutyCycle(duty_cycle)
+        time.sleep(1)  # Wait for the servo to reach the position
+    else:
+        print("Invalid angle! Please enter a value between 0 and 180.")
 
 try:
     while True:
-        angle = float(input("Enter angle (0-180): "))
-        if 0 <= angle <= 180:
-            duty = angle_to_duty(angle)
-            print(f"Setting angle to {angle}°, PWM duty = {duty:.2f}%")
-            pwm.ChangeDutyCycle(duty)
-            sleep(0.5)
-            pwm.ChangeDutyCycle(0)  # Stop signal to prevent jitter
-        else:
-            print("Please enter a valid angle (0–180).")
+        angle = float(input("Enter the angle (0 to 180 degrees) or 'exit' to quit: "))
+        set_angle(angle)
 
 except KeyboardInterrupt:
-    pwm.stop()
-    GPIO.cleanup()
-    print("GPIO cleaned up.")
+    print("Program interrupted")
+
+finally:
+    myPWM.stop()
+    GPIO.cleanup()  # Clean up GPIO setup
