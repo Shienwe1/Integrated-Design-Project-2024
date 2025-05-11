@@ -1,0 +1,58 @@
+import RPi.GPIO as GPIO
+import time
+
+# Pin setup
+TRIG = 17
+ECHO = 27
+SERVO_PIN = 23
+THRESHOLD = 15  # cm
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(TRIG, GPIO.OUT)
+GPIO.setup(ECHO, GPIO.IN)
+GPIO.setup(SERVO_PIN, GPIO.OUT)
+
+# Setup PWM for servo
+pwm = GPIO.PWM(SERVO_PIN, 50)  # 50Hz
+pwm.start(0)
+
+def get_distance():
+    GPIO.output(TRIG, False)
+    time.sleep(0.05)
+
+    GPIO.output(TRIG, True)
+    time.sleep(0.00001)
+    GPIO.output(TRIG, False)
+
+    while GPIO.input(ECHO) == 0:
+        pulse_start = time.time()
+
+    while GPIO.input(ECHO) == 1:
+        pulse_end = time.time()
+
+    pulse_duration = pulse_end - pulse_start
+    distance = pulse_duration * 17150
+    return round(distance, 2)
+
+try:
+    while True:
+        distance = get_distance()
+        print(f"Distance: {distance} cm")
+
+        if distance <= THRESHOLD:
+            print("Object detected — opening lid")
+            pwm.ChangeDutyCycle(7.5)  # ~90°
+            time.sleep(2)  # Wait for servo to finish rotating
+
+            print("Closing lid")
+            pwm.ChangeDutyCycle(2.5)  # ~0°
+            time.sleep(2)  # Wait for servo to return
+
+        else:
+            print("No object detected")
+
+        time.sleep(1)  # Delay before next reading
+
+except KeyboardInterrupt:
+    pwm.stop()
+    GPIO.cleanup()
