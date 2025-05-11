@@ -1,0 +1,38 @@
+import time
+from DualServoController import DualServoController
+from LidController import AutoLidSystem
+from YOLO_inference import YOLOInference
+
+def main():
+    # Initialize the dual servo controller with GPIO pins 18 and 24
+    servo_controller = DualServoController(pin1=18, pin2=24)
+    
+    # Initialize the lid control system with a distance threshold of 15 cm
+    lid_system = AutoLidSystem(trig_pin=17, echo_pin=27, servo_pin=23, threshold=15)
+
+    # Initialize YOLO inference with model path and source
+    yolo_model_path = 'runs/detect/train/weights/best.pt'  # Change to your model path
+    yolo_source = 'video'  # Can be 'video', 'usb', 'picamera', or 'folder'
+    yolo_inference = YOLOInference(model_path=yolo_model_path, source=yolo_source, thresh=0.5)
+
+    try:
+        # Run YOLO inference in the background
+        print("Starting YOLO Inference...")
+        yolo_inference.run_inference()
+
+        # Run the lid system, checking for objects within the threshold distance
+        print("Starting Auto Lid System...")
+        lid_system.run()
+
+    except KeyboardInterrupt:
+        print("Interrupted by user. Exiting...")
+    
+    finally:
+        # Cleanup all resources
+        servo_controller.cleanup()
+        lid_system.cleanup()
+        yolo_inference.cleanup()
+
+if __name__ == '__main__':
+    main()
+
