@@ -1,0 +1,20 @@
+from LidController import AutoLidSystem
+
+def main():
+    # Initialize the lid control system with a distance threshold of 15 cm
+    lid_system = AutoLidSystem(trig_pin=17, echo_pin=27, servo_pin=23, threshold=15)
+
+    try:
+        # Run the lid system, checking for objects within the threshold distance
+        print("Starting Auto Lid System...")
+        lid_system.run()
+
+    except KeyboardInterrupt:
+        print("Interrupted by user. Exiting...")
+
+    finally:
+        # Cleanup resources
+        lid_system.cleanup()
+
+if __name__ == '__main__':
+    main()
