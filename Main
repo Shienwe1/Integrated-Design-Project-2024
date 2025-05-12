@@ -1,38 +1,65 @@
 from YOLO_inference import YOLOInference
+from LidController import AutoLidSystem
+import threading
+import time
 
-def main():
-    # Set the model path and input source
-    yolo_model_path = '/home/user/YOLO/my_model.pt'  # ✅ Update this path to your actual model file
-    yolo_source = 'picamera0'  # 🔄 Options: 'video.mp4', 'usb0', 'picamera0', 'path/to/folder', or 'path/to/image.jpg'
-
-    # Set resolution (change to match your camera or source if needed)
+def start_yolo_inference():
+    yolo_model_path = '/home/user/YOLO/my_model.pt'
+    yolo_source = 'picamera0'  # e.g., 'usb0', 'video.mp4', 'picamera0'
     resolution = (640, 480)
 
-    # Initialize YOLO Inference
+    yolo = YOLOInference(
+        model_path=yolo_model_path,
+        source=yolo_source,
+        thresh=0.5,
+        resolution=resolution,
+        record=False
+    )
+
     try:
-        print("[INFO] Initializing YOLO Inference...")
-        yolo_inference = YOLOInference(
-            model_path=yolo_model_path,
-            source=yolo_source,
-            thresh=0.5,
-            resolution=resolution,
-            record=False  # Set to True if you want to save the output video
-        )
-
-        print("[INFO] Starting Inference...")
-        yolo_inference.run_inference()
-
-    except ValueError as ve:
-        print(f"[ERROR] {ve}")
-
+        print("[INFO] Starting YOLO Inference...")
+        yolo.run_inference()
     except KeyboardInterrupt:
-        print("[INFO] Inference stopped by user.")
-
+        print("[INFO] YOLO Inference stopped by user.")
     finally:
-        yolo_inference.cleanup()
-        print("[INFO] Cleanup completed.")
+        yolo.cleanup()
+
+def start_lid_system():
+    lid = AutoLidSystem(
+        trig_pin=17,   # GPIO pin for ultrasonic TRIG
+        echo_pin=27,   # GPIO pin for ultrasonic ECHO
+        servo_pin=23,  # GPIO pin for SG90 servo
+        threshold=15   # Distance threshold in cm
+    )
+
+    try:
+        print("[INFO] Starting Auto Lid System...")
+        lid.run()
+    except KeyboardInterrupt:
+        print("[INFO] Auto Lid System stopped by user.")
+    finally:
+        lid.cleanup()
+
+def main():
+    # Start both YOLO and Lid system in parallel threads
+    yolo_thread = threading.Thread(target=start_yolo_inference)
+    lid_thread = threading.Thread(target=start_lid_system)
+
+    yolo_thread.start()
+    lid_thread.start()
+
+    try:
+        while yolo_thread.is_alive() and lid_thread.is_alive():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("[INFO] Program interrupted. Cleaning up...")
+
+    yolo_thread.join()
+    lid_thread.join()
+    print("[INFO] Program finished.")
 
 if __name__ == '__main__':
     main()
+
 
 
