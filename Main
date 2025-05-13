@@ -1,18 +1,22 @@
-from YOLO_inference import YOLOInference
-from LidController import AutoLidSystem
-import threading
 import time
+import threading
+from multiprocessing import Process
+from LidController import AutoLidSystem
+from dualservocontroller import DualServoController
+from YOLO_inference import YOLOInference
 
-def start_yolo_inference():
+# Initialize dual servo controller
+servo_controller = DualServoController(pin1=18, pin2=24)
+
+def run_yolo_inference():
     yolo_model_path = '/home/user/YOLO/my_model.pt'
-    yolo_source = 'picamera0'  # e.g., 'usb0', 'video.mp4', 'picamera0'
-    resolution = (640, 480)
+    yolo_source = 'picamera0'  # Adjust according to your setup
 
     yolo = YOLOInference(
         model_path=yolo_model_path,
         source=yolo_source,
         thresh=0.5,
-        resolution=resolution,
+        resolution=(640, 480),
         record=False
     )
 
@@ -20,46 +24,70 @@ def start_yolo_inference():
         print("[INFO] Starting YOLO Inference...")
         yolo.run_inference()
     except KeyboardInterrupt:
-        print("[INFO] YOLO Inference stopped by user.")
+        print("[INFO] YOLO Inference interrupted.")
     finally:
         yolo.cleanup()
 
-def start_lid_system():
-    lid = AutoLidSystem(
-        trig_pin=17,   # GPIO pin for ultrasonic TRIG
-        echo_pin=27,   # GPIO pin for ultrasonic ECHO
-        servo_pin=23,  # GPIO pin for SG90 servo
-        threshold=15   # Distance threshold in cm
-    )
+def ultrasonic_thread(lid_system, servo_controller):
+    while True:
+        distance = lid_system.get_distance()
+        print(f"[INFO] Distance: {distance} cm")
 
-    try:
-        print("[INFO] Starting Auto Lid System...")
-        lid.run()
-    except KeyboardInterrupt:
-        print("[INFO] Auto Lid System stopped by user.")
-    finally:
-        lid.cleanup()
+        if distance <= lid_system.THRESHOLD:
+            lid_system.open_lid()
+
+            try:
+                angle1 = int(input("Enter angle for servo on GPIO18 (0–180): "))
+                angle2 = int(input("Enter angle for servo on GPIO24 (0–180): "))
+
+                if 0 <= angle1 <= 180 and 0 <= angle2 <= 180:
+                    servo_controller.set_servo1(angle1)
+                    servo_controller.set_servo2(angle2)
+                    time.sleep(5)
+
+                    # Return servos to 0 degrees
+                    servo_controller.set_servo1(0)
+                    servo_controller.set_servo2(0)
+                    print("[INFO] Servos returned to 0 degrees")
+
+                    time.sleep(3)  # Wait before next distance check
+                else:
+                    print("[ERROR] Angles must be between 0 and 180.")
+
+            except ValueError:
+                print("[ERROR] Invalid input. Please enter numeric values.")
+
+        else:
+            print("[INFO] No object detected. Sleeping briefly...")
+            time.sleep(1)
 
 def main():
-    # Start both YOLO and Lid system in parallel threads
-    yolo_thread = threading.Thread(target=start_yolo_inference)
-    lid_thread = threading.Thread(target=start_lid_system)
+    lid_system = AutoLidSystem(trig_pin=17, echo_pin=27, servo_pin=23, threshold=20)
 
-    yolo_thread.start()
-    lid_thread.start()
+    # Start ultrasonic + servo logic in a thread
+    ultrasonic_thread_instance = threading.Thread(target=ultrasonic_thread, args=(lid_system, servo_controller))
+    ultrasonic_thread_instance.start()
+
+    # Run YOLO in separate process
+    yolo_process = Process(target=run_yolo_inference)
+    yolo_process.start()
 
     try:
-        while yolo_thread.is_alive() and lid_thread.is_alive():
-            time.sleep(0.5)
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        print("[INFO] Program interrupted. Cleaning up...")
+        print("[INFO] Interrupted by user.")
+    finally:
+        yolo_process.terminate()
+        yolo_process.join()
 
-    yolo_thread.join()
-    lid_thread.join()
-    print("[INFO] Program finished.")
+        lid_system.cleanup()
+        servo_controller.cleanup()
+        print("[INFO] System shut down gracefully.")
 
 if __name__ == '__main__':
     main()
+
 
 
 
