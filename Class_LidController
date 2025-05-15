@@ -1,1 +1,69 @@
+import RPi.GPIO as GPIO
+import time
+
+class AutoLidSystem:
+    def __init__(self, trig_pin=17, echo_pin=27, servo_pin=23, threshold=15):
+        self.TRIG = trig_pin
+        self.ECHO = echo_pin
+        self.SERVO = servo_pin
+        self.THRESHOLD = threshold
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.TRIG, GPIO.OUT)
+        GPIO.setup(self.ECHO, GPIO.IN)
+        GPIO.setup(self.SERVO, GPIO.OUT)
+
+        self.pwm = GPIO.PWM(self.SERVO, 50)  # 50Hz
+        self.pwm.start(0)
+        print("System initialized.")
+
+    def get_distance(self):
+        GPIO.output(self.TRIG, False)
+        time.sleep(0.05)
+
+        GPIO.output(self.TRIG, True)
+        time.sleep(0.00001)
+        GPIO.output(self.TRIG, False)
+
+        while GPIO.input(self.ECHO) == 0:
+            pulse_start = time.time()
+
+        while GPIO.input(self.ECHO) == 1:
+            pulse_end = time.time()
+
+        pulse_duration = pulse_end - pulse_start
+        distance = pulse_duration * 17150
+        return round(distance, 2)
+
+    def open_lid(self):
+        print("Opening lid")
+        self.pwm.ChangeDutyCycle(7.5)  # ~90°
+        time.sleep(2)
+
+    def close_lid(self):
+        print("Closing lid")
+        self.pwm.ChangeDutyCycle(2.5)  # ~0°
+        time.sleep(2)
+
+    def run(self):
+        try:
+            while True:
+                distance = self.get_distance()
+                print(f"Distance: {distance} cm")
+
+                if distance <= self.THRESHOLD:
+                    self.open_lid()
+                    self.close_lid()
+                else:
+                    print("No object detected")
+
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            print("Exiting system...")
+            self.cleanup()
+
+    def cleanup(self):
+        self.pwm.stop()
+        GPIO.cleanup()
 
