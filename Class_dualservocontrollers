@@ -1,1 +1,50 @@
+import RPi.GPIO as GPIO
+import time
 
+class DualServoController:
+    def __init__(self, pin1=18, pin2=24, frequency=50):
+        self.pin1 = pin1
+        self.pin2 = pin2
+        self.frequency = frequency
+
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.pin1, GPIO.OUT)
+        GPIO.setup(self.pin2, GPIO.OUT)
+
+        self.pwm1 = GPIO.PWM(self.pin1, self.frequency)
+        self.pwm2 = GPIO.PWM(self.pin2, self.frequency)
+
+        self.pwm1.start(0)
+        self.pwm2.start(0)
+
+        print(f"[INFO] Dual servo controller initialized on GPIO {pin1} and {pin2}.")
+
+    def set_angle(self, pwm, angle, pin_name=""):
+        """Set angle (0–180°) for a single servo."""
+        if 0 <= angle <= 180:
+            duty = (angle / 18.0) + 2.0
+            print(f"[DEBUG] Setting {pin_name} to {angle}° (duty={duty:.2f})")
+            pwm.ChangeDutyCycle(duty)
+            time.sleep(0.5)
+            pwm.ChangeDutyCycle(0)
+        else:
+            print(f"[ERROR] Invalid angle for {pin_name}: {angle} (must be between 0 and 180)")
+
+    def set_servo1(self, angle):
+        self.set_angle(self.pwm1, angle, pin_name=f"GPIO{self.pin1}")
+
+    def set_servo2(self, angle):
+        self.set_angle(self.pwm2, angle, pin_name=f"GPIO{self.pin2}")
+
+    def reset(self):
+        """Reset both servos to neutral position (75°)."""
+        print("[INFO] Resetting servos to 75°.")
+        self.set_servo1(75)
+        self.set_servo2(75)
+
+    def cleanup(self):
+        print("[INFO] Cleaning up servos and GPIO.")
+        self.pwm1.stop()
+        self.pwm2.stop()
+        GPIO.cleanup()
