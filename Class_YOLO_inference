@@ -1,1 +1,193 @@
+import os
+import cv2
+import glob
+import time
+import numpy as np
+from ultralytics import YOLO
+
+class YOLOInference:
+    def __init__(self, model_path, source, thresh=0.5, resolution=(640, 480), record=False, servo_controller=None):
+        self.model_path = model_path
+        self.source = source
+        self.thresh = thresh
+        self.resolution = resolution
+        self.record = record
+        self.resize = True if resolution else False
+        self.servo_controller = servo_controller
+
+        if not os.path.isabs(model_path):
+            model_path = os.path.join(os.getcwd(), model_path)
+
+        if not os.path.exists(model_path):
+            raise ValueError(f'ERROR: Model not found at {model_path}')
+        else:
+            print(f"[INFO] Loaded YOLO model from: {model_path}")
+
+        self.model = YOLO(model_path, task='detect')
+        self.labels = self.model.names
+
+        self.source_type, self.cap = self._parse_source()
+
+        if self.record and self.source_type in ['video', 'usb', 'picamera']:
+            self.record_name = 'demo1.avi'
+            self.record_fps = 30
+            self.recorder = cv2.VideoWriter(self.record_name,
+                                            cv2.VideoWriter_fourcc(*'MJPG'),
+                                            self.record_fps,
+                                            self.resolution)
+        else:
+            self.recorder = None
+
+        self.bbox_colors = [(164, 120, 87), (68, 148, 228), (93, 97, 209), (178, 182, 133),
+                            (88, 159, 106), (96, 202, 231), (159, 124, 168), (169, 162, 241),
+                            (98, 118, 150), (172, 176, 184)]
+
+        # Predefined servo angles per class name
+        self.servo_angles = {
+            'plastic bottle': (110, 125),  # (pin18_angle, pin24_angle)
+            'glass bottle':   (35,  125),
+            'cardboard':      (110, 35),
+            'eggshell':       (35,  35),
+        }
+
+        # To avoid multiple triggers while the object is still detected
+        self.trigger_cooldown = 7  # seconds
+        self.last_trigger_time = 0
+
+    def _parse_source(self):
+        if self.source == 'picamera0':
+            from picamera2 import Picamera2
+            picam2 = Picamera2()
+            config = picam2.create_video_configuration(main={"format": 'RGB888', "size": self.resolution})
+            picam2.configure(config)
+            picam2.start()
+            print("[INFO] Picamera2 initialized.")
+            return 'picamera', picam2
+
+        elif os.path.isfile(self.source):
+            return 'video', cv2.VideoCapture(self.source)
+
+        elif self.source.startswith('usb'):
+            cam_index = int(self.source[3:])
+            return 'usb', cv2.VideoCapture(cam_index)
+
+        elif os.path.isdir(self.source):
+            return 'folder', sorted(glob.glob(os.path.join(self.source, '*')))
+
+        else:
+            raise ValueError(f"Unsupported source: {self.source}")
+
+    def run_inference(self):
+        img_count = 0
+        frame_rate_buffer = []
+        avg_frame_rate = 0
+        fps_avg_len = 100
+
+        while True:
+            t_start = time.perf_counter()
+
+            if self.source_type == 'picamera':
+                frame = self.cap.capture_array()
+
+            elif self.source_type in ['video', 'usb']:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("End of video stream or cannot access USB camera.")
+                    break
+
+            elif self.source_type == 'folder':
+                if img_count >= len(self.cap):
+                    print("All images processed.")
+                    break
+                frame = cv2.imread(self.cap[img_count])
+                img_count += 1
+
+            else:
+                break
+
+            if self.resize:
+                frame = cv2.resize(frame, self.resolution)
+
+            results = self.model(frame, verbose=False)
+            detections = results[0].boxes
+            object_count = 0
+            detected_objects = []
+
+            for i in range(len(detections)):
+                xyxy = detections[i].xyxy.cpu().numpy().squeeze().astype(int)
+                xmin, ymin, xmax, ymax = xyxy
+                classidx = int(detections[i].cls.item())
+                conf = detections[i].conf.item()
+
+                if conf > self.thresh:
+                    classname = self.labels[classidx]
+                    color = self.bbox_colors[classidx % 10]
+                    label = f'{classname}: {int(conf * 100)}%'
+
+                    cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
+                    cv2.putText(frame, label, (xmin, max(ymin - 5, 15)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    object_count += 1
+                    detected_objects.append(classname.lower())
+
+            # Autonomous servo triggering logic
+            current_time = time.time()
+            if self.servo_controller is not None and (current_time - self.last_trigger_time) > self.trigger_cooldown:
+                # Check if any detected object matches the servo_angles keys
+                triggered = False
+                for obj in detected_objects:
+                    if obj in self.servo_angles:
+                        pin18_angle, pin24_angle = self.servo_angles[obj]
+                        print(f"[INFO] Detected '{obj}', moving servos to angles: PIN24={pin24_angle}, PIN18={pin18_angle}")
+
+                        # Follow your requested sequence: first servo GPIO24, then GPIO18
+                        self.servo_controller.set_servo2(pin24_angle)  # GPIO24
+                        self.servo_controller.set_servo1(pin18_angle)  # GPIO18
+
+                        time.sleep(5)
+
+                        # Return GPIO18 servo to 75 degrees
+                        self.servo_controller.set_servo1(75)
+                        time.sleep(2)
+
+                        self.last_trigger_time = current_time
+                        triggered = True
+                        break  # only trigger once per cooldown
+
+                if not triggered:
+                    # No known object detected, or cooldown active
+                    pass
+
+            cv2.putText(frame, f'Objects: {object_count}', (10, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(frame, f'FPS: {avg_frame_rate:.2f}', (10, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+
+            cv2.imshow("YOLO Inference", frame)
+
+            if self.record:
+                self.recorder.write(frame)
+
+            key = cv2.waitKey(1)
+            if key in [ord('q'), 27]:
+                break
+
+            t_stop = time.perf_counter()
+            fps = 1 / (t_stop - t_start)
+            frame_rate_buffer.append(fps)
+            if len(frame_rate_buffer) > fps_avg_len:
+                frame_rate_buffer.pop(0)
+            avg_frame_rate = np.mean(frame_rate_buffer)
+
+        self.cleanup()
+
+    def cleanup(self):
+        if self.source_type in ['video', 'usb']:
+            self.cap.release()
+        elif self.source_type == 'picamera':
+            self.cap.stop()
+        if self.record:
+            self.recorder.release()
+        cv2.destroyAllWindows()
+        print("[INFO] Resources cleaned up.")
 
