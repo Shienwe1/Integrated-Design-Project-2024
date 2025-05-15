@@ -10,7 +10,7 @@ servo_controller = DualServoController(pin1=18, pin2=24)
 
 def run_yolo_inference():
     yolo_model_path = '/home/user/YOLO/my_model.pt'
-    yolo_source = 'picamera0'  # Adjust according to your setup
+    yolo_source = 'picamera0'  # Adjust as needed
 
     yolo = YOLOInference(
         model_path=yolo_model_path,
@@ -34,25 +34,36 @@ def ultrasonic_thread(lid_system, servo_controller):
         print(f"[INFO] Distance: {distance} cm")
 
         if distance <= lid_system.THRESHOLD:
+            # Step 1: Open lid (SG90 on GPIO23)
             lid_system.open_lid()
+            time.sleep(3)
 
+            # Step 2: Close lid
+            lid_system.close_lid()
+
+            # Step 3: Servo GPIO24 input
             try:
-                angle1 = int(input("Enter angle for servo on GPIO18 (0–180): "))
                 angle2 = int(input("Enter angle for servo on GPIO24 (0–180): "))
+                if not 0 <= angle2 <= 180:
+                    print("[ERROR] Angle must be between 0 and 180.")
+                    continue
+                servo_controller.set_servo2(angle2)
 
-                if 0 <= angle1 <= 180 and 0 <= angle2 <= 180:
-                    servo_controller.set_servo1(angle1)
-                    servo_controller.set_servo2(angle2)
-                    time.sleep(5)
+                # Step 4: Servo GPIO18 input
+                angle1 = int(input("Enter angle for servo on GPIO18 (0–180): "))
+                if not 0 <= angle1 <= 180:
+                    print("[ERROR] Angle must be between 0 and 180.")
+                    continue
+                servo_controller.set_servo1(angle1)
 
-                    # Return servos to 0 degrees
-                    servo_controller.set_servo1(0)
-                    servo_controller.set_servo2(0)
-                    print("[INFO] Servos returned to 0 degrees")
+                print("[INFO] Servos positioned. Waiting 3 seconds...")
+                time.sleep(3)
 
-                    time.sleep(3)  # Wait before next distance check
-                else:
-                    print("[ERROR] Angles must be between 0 and 180.")
+                # Return GPIO18 to 75°
+                servo_controller.set_servo1(75)
+                print("[INFO] Servo on GPIO18 reset to 75°")
+
+                time.sleep(2)  # Pause before next detection
 
             except ValueError:
                 print("[ERROR] Invalid input. Please enter numeric values.")
@@ -64,11 +75,9 @@ def ultrasonic_thread(lid_system, servo_controller):
 def main():
     lid_system = AutoLidSystem(trig_pin=17, echo_pin=27, servo_pin=23, threshold=20)
 
-    # Start ultrasonic + servo logic in a thread
     ultrasonic_thread_instance = threading.Thread(target=ultrasonic_thread, args=(lid_system, servo_controller))
     ultrasonic_thread_instance.start()
 
-    # Run YOLO in separate process
     yolo_process = Process(target=run_yolo_inference)
     yolo_process.start()
 
